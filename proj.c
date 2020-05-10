@@ -22,8 +22,6 @@
 #define FD_TIMEOUT_SECONDS 60
 #define RD_WR_BUFFER_SIZE 100000
 
-// idle buffer: fd_id = 0
-// buffer fram cache: fd_id = FD_SETSIZE to (FD_SETSIZE + CACHE_CAP)
 typedef struct {
   int fd_id;
   char *buffer;
@@ -309,11 +307,6 @@ int main(int argc, char **argv) {
         num_bytes = write_buf->size - write_buf->size_written;
         num_bytes = RD_WR_BUFFER_SIZE >= num_bytes ? num_bytes : RD_WR_BUFFER_SIZE; // if from cache
         
-        if (write(i, write_buf->buffer + write_buf->size_written, num_bytes) != num_bytes) {
-          perror("Write error\n");
-          // TODO shut fd
-        }
-        
         write_buf->size_written += num_bytes;
         fd_last_mod_time[i] = time(NULL);
         
@@ -348,7 +341,7 @@ int connect_server(request_from_client *req) {
   server = gethostbyname(req->host_name);
   if (server == NULL) {
     perror("ERROR getting hostname.\n");
-    exit(0);
+    exit(EXIT_FAILURE);
   }
   
   // build the server's Internet address
@@ -679,10 +672,6 @@ void response_parse(cache_ele *node, int len) {
       break;
     // get content-length
     } else if (contains_chars(line, content_len, len_content)) {
-    //   for (int k = 0; line[k] != '\n'; k++) {
-    //     putchar(line[k]);
-    //   }
-    //   putchar('\n');
       
       char tmp_len[100];
       int j = 0;
@@ -697,10 +686,6 @@ void response_parse(cache_ele *node, int len) {
       parsed_body_len = atol(tmp_len);
     // get max-age in Cache-Control
     } else if (contains_chars(line, cache_ctrl, len_cache_ctrl)) {
-    //   for (int k = 0; line[k] != '\n'; k++) {
-    //     putchar(line[k]);
-    //   }
-    //   putchar('\n');
       
       i += len_cache_ctrl;
       while (res_buf[i] != '\r') {
