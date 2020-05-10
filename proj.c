@@ -296,6 +296,8 @@ int main(int argc, char **argv) {
           // shut fd and close the connection
           shutdown(i, SHUT_RDWR);
           close(i);
+		  FD_CLR(i, &read_fd_set);
+		  continue;
         }
       }
       
