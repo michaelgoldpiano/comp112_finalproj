@@ -107,7 +107,6 @@ int main(int argc, char **argv) {
     perror("listen");
     exit(EXIT_FAILURE);
   }
-  printf("Create the main socket with ID %d\n", main_sock);
   
   init();
   
@@ -116,7 +115,6 @@ int main(int argc, char **argv) {
   fd_set read_fd_set, write_fd_set;
   /* run the proxy */
   while (1) {
-    printf("\n Begin to select\n");
     int max_fd = main_sock;
     FD_ZERO(&read_fd_set);
     FD_ZERO(&write_fd_set);
@@ -155,14 +153,12 @@ int main(int argc, char **argv) {
         
       // set read when there is space
       if (read_buf->size < RD_WR_BUFFER_SIZE || cache_index >= 0) {
-        printf("Setting %d to the read_set\n", i);
         FD_SET(i, &read_fd_set);
         max_fd = max_fd > i ? max_fd : i;
       }
       
       // set write if possible
       if (write_buf != NULL && write_buf->size > write_buf->size_written) {
-        printf("Setting %d to the write_set\n", i);
         FD_SET(i, &write_fd_set);
         max_fd = max_fd > i ? max_fd : i;
       }
@@ -179,8 +175,6 @@ int main(int argc, char **argv) {
       perror("select");
       exit(EXIT_FAILURE);
     }
-    
-    printf("Selected\n");
 
     /* Service all the sockets with input pending or close any socket w partial
        data >= 1min */
@@ -203,14 +197,24 @@ int main(int argc, char **argv) {
 
           /* search */
           int num_results_found = 0;
+          printf("**********\n");
+
           for (int i = 0; i < CACHE_CAP; i++) {
+            /* Key (URI) */
+            char *key = cache_arr[i]->key;
+
+            /* Val (Body) */
             int body_len = cache_arr[i]->value->body_len;
             char *body = malloc((sizeof(*body) * body_len) + 1);
             body[body_len] = '\0';
             memcpy(body, cache_arr[i]->value->body, body_len);
+
+            /* Print */
             if (strstr(body, buf) != NULL) {
               num_results_found++;
+              printf("%s\n", key);
               printf("%s\n", body);
+              printf("**********\n");
             }
           }
           if (num_results_found == 0) {
@@ -234,7 +238,6 @@ int main(int argc, char **argv) {
             exit(EXIT_FAILURE);
           }
           
-          printf("Server: connect from client with fd_id=%d\n", new);
           fd_last_mod_time[new] = time(NULL);
           
           // init buffer
@@ -251,7 +254,6 @@ int main(int argc, char **argv) {
       
       // read to the buffer
       if (FD_ISSET(i, &read_fd_set)) {
-        printf("Processing read for fd of id %d\n", i);
         
         int cache_index = rd_wr_buffers[i]->fd_id - FD_SETSIZE;
         fd_last_mod_time[i] = time(NULL);
@@ -266,7 +268,6 @@ int main(int argc, char **argv) {
             response_from_server* response = the_cache->value;
             response->msg_len += num_bytes;
             
-            printf("Read %d bytes to cache\n", num_bytes);
             rd_wr_buffers[i]->size += num_bytes;
             
             // try to parse the response header
@@ -279,7 +280,6 @@ int main(int argc, char **argv) {
                                RD_WR_BUFFER_SIZE - rd_wr_buffers[i]->size);
           
           if (num_bytes >= 1) {
-            printf("Read %d bytes to the buffer of fd_id %d\n", num_bytes, i);
             rd_wr_buffers[i]->size += num_bytes;
             
             // only process when it is the 1st request from client
@@ -291,7 +291,6 @@ int main(int argc, char **argv) {
         }
         
         if (num_bytes < 1) {
-          printf("The connection with fd_id %d is closed.\n", i);
           fd_last_mod_time[i] = 0;
           
           // shut fd and close the connection
@@ -302,7 +301,6 @@ int main(int argc, char **argv) {
       
       // write to the buffer or cache
       if (FD_ISSET(i, &write_fd_set)) {
-        printf("Processing write for fd of id %d\n", i);
         
         rd_wr_buffer *write_buf = write_buffer_lookup[i];
         
@@ -316,12 +314,6 @@ int main(int argc, char **argv) {
         
         write_buf->size_written += num_bytes;
         fd_last_mod_time[i] = time(NULL);
-        
-        if (write_buf->fd_id >= FD_SETSIZE) {
-          printf("Write %d bytes of data out of cache to fd_id %d\n", num_bytes, i);
-        } else {
-          printf("Write %d bytes of data out of buffer to fd_id %d\n", num_bytes, i);
-        }
         
         // check if write buffer is full
         if (write_buf->fd_id < FD_SETSIZE && write_buf->size_written == RD_WR_BUFFER_SIZE) {
@@ -353,7 +345,7 @@ int connect_server(request_from_client *req) {
   // gethostbyname: get the server's DNS entry
   server = gethostbyname(req->host_name);
   if (server == NULL) {
-    fprintf(stderr,"ERROR, no such host as %s\n", req->host_name);
+    perror("ERROR getting hostname.\n");
     exit(0);
   }
   
@@ -397,7 +389,6 @@ rd_wr_buffer* process_get_request(request_from_client *req, rd_wr_buffer* write_
   // if cache value not exist or out-dated
   if (res_cache == NULL
       || res_cache->expiration_time <= cur_time) {
-    printf("No result in the cache or content expried\n");
     // create an empty content cache
     res_cache = cache_new_or_reset(res_cache, req);
     
@@ -406,8 +397,6 @@ rd_wr_buffer* process_get_request(request_from_client *req, rd_wr_buffer* write_
     rd_wr_buffers[server_fd] = res_buf;
     write_buffer_lookup[server_fd] = write_buf;
     fd_last_mod_time[server_fd] = cur_time;
-    
-    printf("Connected to server with fd id=%d\n", server_fd);
   }
   
   res_buf->fd_id = FD_SETSIZE + res_cache->id;
@@ -527,7 +516,6 @@ bool is_request_end(char *str, int len) {
 int parse_port_number(char *str) {
   // parse port num if available
   if (str[0] == ':' && str[1] >= '0' && str[1] <= '9') {
-    //printf("Parsing port number\n");
     
     char port_chars[10];
     int i = 0;
@@ -538,8 +526,6 @@ int parse_port_number(char *str) {
     }
     port_chars[i] = '\0';
     
-    printf("Parsed Port number is:[%s]\n", port_chars);
-    
     return atoi(port_chars);
   }
   
@@ -547,7 +533,6 @@ int parse_port_number(char *str) {
 }
 
 request_from_client* request_parse(rd_wr_buffer *req_buf) {
-  printf("Begin to parse the request from client\n");
   
   // if it is a valid request, return a new request_from_client
   request_from_client *request = (request_from_client*) malloc(sizeof(request_from_client));
@@ -569,7 +554,6 @@ request_from_client* request_parse(rd_wr_buffer *req_buf) {
     char *line = req_buf->buffer + i;
     if (contains_chars(line, get_header, get_len)
         || contains_chars(line, connect_header, connect_len)) {
-      //printf("Parsing HTTP request method\n");
       
       int j = 0;
       while (req_buf->buffer[i] != '\r') {
@@ -588,7 +572,6 @@ request_from_client* request_parse(rd_wr_buffer *req_buf) {
         request->is_get_request = false;
       }
     } else if (contains_chars(line, host_header, host_len)) {
-      //printf("Parsing host name\n");
       
       i += host_len;
       int j = 0;
@@ -596,7 +579,6 @@ request_from_client* request_parse(rd_wr_buffer *req_buf) {
         request->host_name[j++] = req_buf->buffer[i++];
       }
       request->host_name[j] = '\0';
-      printf("Host name is:[%s]\n", request->host_name);
       
       while (req_buf->buffer[i] != '\n') {
         i++;
@@ -630,10 +612,8 @@ bool contains_chars(char *ptr, char *header, int len) {
 }
 
 cache_ele* cache_find(char *key) {
-  printf("Trying to find the key [%s] in the cache\n", key);
   for (int i = 0; i < CACHE_CAP; i++) {
     if (strcmp(key, cache_arr[i]->key) == 0) {
-      printf("Found the key in the cache\n");
       return cache_arr[i];
     }
   }
@@ -660,7 +640,6 @@ cache_ele* cache_new_or_reset(cache_ele* node, request_from_client *req) {
   if (node == NULL) {
     node = cache_next_free();
     strcpy(node->key, req->request_method);
-    printf("New cache with key [%s]\n", req->request_method);
   }
   
   // reset the content of cache
@@ -681,21 +660,13 @@ void response_parse(cache_ele *node, int len) {
   
   long parsed_expir_time = cur_time + DEFAULT_CACHE_AGE;;
   long parsed_body_len = 0;
-  
-  /* Test
-  for (int i = 0; i < node->value->msg_len; i++) {
-    //printf("%d ", node->value->msg[i]);
-    putchar(node->value->msg[i]);
-  }
-  printf("\n");
-  */
+
   
   for (int i = 0; i < len; i++) {
     char *line = res_buf + i;
     
     // the separting line between header and body '\r\n'
     if (res_buf[i] == '\r' && node->value->body == NULL) {
-      printf("Get %ld bytes header from the server\n", i);
       
       i++; // '\n'
       node->value->body = res_buf + i + 1;
@@ -706,10 +677,10 @@ void response_parse(cache_ele *node, int len) {
       break;
     // get content-length
     } else if (contains_chars(line, content_len, len_content)) {
-      for (int k = 0; line[k] != '\n'; k++) {
-        putchar(line[k]);
-      }
-      putchar('\n');
+    //   for (int k = 0; line[k] != '\n'; k++) {
+    //     putchar(line[k]);
+    //   }
+    //   putchar('\n');
       
       char tmp_len[100];
       int j = 0;
@@ -722,13 +693,12 @@ void response_parse(cache_ele *node, int len) {
       
       //node->value->body_len = atol(tmp_len);
       parsed_body_len = atol(tmp_len);
-      //printf("Expect %ld bytes body from the server\n", parsed_body_len);
     // get max-age in Cache-Control
     } else if (contains_chars(line, cache_ctrl, len_cache_ctrl)) {
-      for (int k = 0; line[k] != '\n'; k++) {
-        putchar(line[k]);
-      }
-      putchar('\n');
+    //   for (int k = 0; line[k] != '\n'; k++) {
+    //     putchar(line[k]);
+    //   }
+    //   putchar('\n');
       
       i += len_cache_ctrl;
       while (res_buf[i] != '\r') {
@@ -742,8 +712,6 @@ void response_parse(cache_ele *node, int len) {
           tmp_age[j] = '\0';
           //node->expiration_time = cur_time + atol(tmp_age);
           parsed_expir_time = cur_time + atol(tmp_age);
-          
-          printf("Expiration at %ld\n", node->expiration_time);
         } else {
           i++;
         }
